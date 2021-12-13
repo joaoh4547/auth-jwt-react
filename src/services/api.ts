@@ -1,7 +1,8 @@
 import axios, { AxiosError } from "axios";
 
 import { parseCookies, setCookie } from "nookies";
-
+let isRefreshing = false;
+let faliedRequestQueue = [];
 let cookies = parseCookies();
 
 export const api = axios.create({
@@ -20,24 +21,53 @@ api.interceptors.response.use(
       if (error.response.data?.code === "token.expired") {
         cookies = parseCookies();
         const { "@app.refreshToken": refreshToken } = cookies;
+        const originalConfig = error.config;
+        if (!isRefreshing) {
+          isRefreshing = true;
+          api
+            .post("refresh", { refreshToken })
+            .then((response) => {
+              const token = response.data.token;
 
-        api.post("refresh", { refreshToken }).then((response) => {
-          const token = response.data.token;
-
-          setCookie(undefined, "@app.token", token, {
-            maxAge: 60 * 60 * 24 * 30,
-            path: "/",
+              setCookie(undefined, "@app.token", token, {
+                maxAge: 60 * 60 * 24 * 30,
+                path: "/",
+              });
+              setCookie(
+                undefined,
+                "@app.refreshToken",
+                response.data.refreshToken,
+                {
+                  maxAge: 60 * 60 * 24 * 30,
+                  path: "/",
+                }
+              );
+              api.defaults.headers["Authorization"] = `Bearer ${token}`;
+              faliedRequestQueue.forEach((request) => {
+                request.resolve(token);
+              });
+              faliedRequestQueue = [];
+            })
+            .catch((err) => {
+              faliedRequestQueue.forEach((request) => {
+                request.reject(err);
+              });
+              faliedRequestQueue = [];
+            })
+            .finally(() => {
+              isRefreshing = false;
+            });
+        }
+        return new Promise((resolver, reject) => {
+          faliedRequestQueue.push({
+            resolve: (token: string) => {
+              originalConfig.headers["Authorization"] = `Bearer ${token}`;
+              resolver(api(originalConfig));
+            },
+            reject: (err: AxiosError) => {
+              reject(err);
+            },
           });
-          setCookie(
-            undefined,
-            "@app.refreshToken",
-            response.data.refreshToken,
-            {
-              maxAge: 60 * 60 * 24 * 30,
-              path: "/",
-            }
-          );
-          api.defaults.headers["Authorization"] = `Bearer ${token}`;
         });
       } else {
       }
