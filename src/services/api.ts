@@ -1,6 +1,8 @@
 import axios, { AxiosError } from "axios";
+import Router from "next/router";
 
-import { parseCookies, setCookie } from "nookies";
+import { destroyCookie, parseCookies, setCookie } from "nookies";
+import { signOut } from "../contexts/AuthContext";
 let isRefreshing = false;
 let faliedRequestQueue = [];
 let cookies = parseCookies();
@@ -70,7 +72,9 @@ api.interceptors.response.use(
           });
         });
       } else {
+        signOut();
       }
     }
+    return Promise.reject(error);
   }
 );
